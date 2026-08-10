@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -50,9 +51,9 @@ def parse_row(row: Tag, source_order: int) -> dict[str, str] | None:
     raw_element = clean(str(row.get("data-element", ""))).lower()
     element = ELEMENTS.get(raw_element, "")
     if not element:
-        element_text = clean(cells[2].get_text(" ", strip=True))
+        element_text = clean(cells[2].get_text(" ", strip=True)).lower()
         for key, label in ELEMENTS.items():
-            if key in element_text.lower().split():
+            if key in element_text.split():
                 element = label
                 break
 
@@ -64,6 +65,13 @@ def parse_row(row: Tag, source_order: int) -> dict[str, str] | None:
     awakened_name = clean(str(cells[3].get("data-sort-value", "")))
     if not awakened_name:
         awakened_name = clean(cells[4].get_text(" ", strip=True))
+    if not awakened_name:
+        # Special rows occasionally leave the name cell empty, but the search text
+        # still carries the awakened name in square brackets.
+        search_text = clean(str(row.get("data-search-text", "")))
+        match = re.match(r"\[([^]]+)\]", search_text)
+        if match:
+            awakened_name = clean(match.group(1))
 
     monster_url = clean(str(row.get("data-link", "")))
     if monster_url:
@@ -106,7 +114,6 @@ def scrape_monsters() -> list[dict[str, str]]:
         if parsed:
             monsters.append(parsed)
 
-    # Deduplicate while preserving the exact source order.
     unique: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for monster in monsters:
@@ -142,9 +149,13 @@ def validate(monsters: list[dict[str, str]]) -> None:
         raise RuntimeError(f"Known monsters not found: {', '.join(missing_known)}")
     if missing_element:
         raise RuntimeError(f"{len(missing_element)} rows have no element.")
+    if missing_family:
+        raise RuntimeError(f"{len(missing_family)} rows have no monster family.")
     if missing_name:
+        for row in missing_name[:10]:
+            print("MISSING NAME ROW:", row)
         raise RuntimeError(f"{len(missing_name)} rows have no awakened name.")
-    if missing_image > [] and len(missing_image) > max(10, len(monsters) // 100):
+    if len(missing_image) > max(10, len(monsters) // 100):
         raise RuntimeError(f"Too many rows without awakened images: {len(missing_image)}")
 
     for sample_name in sorted(KNOWN_MONSTERS):
