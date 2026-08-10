@@ -1,0 +1,60 @@
+name: Scrape Summoners War monsters
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scrape_monsters.py"
+      - ".github/workflows/scrape-monsters.yml"
+      - "requirements.txt"
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape and validate monster list
+        run: python scrape_monsters.py
+
+      - name: Show CSV summary
+        run: |
+          python - <<'PY'
+          import csv
+          from collections import Counter
+          with open('data/monsters.csv', encoding='utf-8-sig') as f:
+              rows = list(csv.DictReader(f))
+          print('Total:', len(rows))
+          print('Elements:', dict(Counter(r['element'] for r in rows)))
+          for name in ['Darion','Colleen','Xiong Fei','Riley','Kro','Xiao Lin']:
+              matches = [r for r in rows if r['awakened_name'] == name]
+              print(name, matches[:1])
+          PY
+
+      - name: Commit refreshed dataset
+        run: |
+          if git diff --quiet -- data/monsters.csv; then
+            echo "No dataset changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/monsters.csv
+          git commit -m "Refresh monster dataset"
+          git push
